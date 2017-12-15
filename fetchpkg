@@ -1,0 +1,98 @@
+#!/bin/sh
+. /etc/rc.subr
+
+name="fetchpkg"
+rcvar=fetchpkg_enable
+
+start_cmd="start_fetch"
+stop_cmd="stop_fetch"
+start_precmd="init_env"
+
+localdir="/other/pkg"                               #定义本地存储目录
+remotedir="/"                                       #定义远程目录
+url="http://pkg1.chinafreebsd.cn"                   #定义远程克隆 URL 
+fetch_bin=`pkg query %n lftp`
+
+[ -z "fetchpkg_enable" ] && fetchpkg_enable="NO"
+
+init_env(){
+
+        if [ "$fetch_bin" != "lftp" ];then
+                /usr/sbin/pkg update -f && /usr/sbin/pkg install -y lftp && \
+		ln -s /usr/local/bin/lftp /usr/local/bin/pkg_lftp
+        fi
+	
+
+        if [ ! -d "$localdir" ];then
+                mkdir -p $localdir
+        fi
+
+        check_url $url
+}
+##################################################
+# 执行时间写入日志
+##################################################
+log(){
+        echo `date +%Y-%m-%d_%H:%M:%S` >> /var/log/fetchpkg.log
+}
+
+##################################################
+# 检查预定义 url
+##################################################
+check_url(){
+
+	flag='0'
+        du1="http://pkg0.nyi.freebsd.org"
+        du2="http://pkg0.bme.freebsd.org"
+        du3="http://pkg0.isc.freebsd.org"
+        du4="http://pkg0.ydx.freebsd.org"
+        du5="http://pkg1.chinafreebsd.cn"
+
+        for  tmp in "$du1" "$du2" "$du3" "$du4" "$du5"; do
+                if [ "$tmp" == "$1" ]; then
+			flag='1'
+                        break
+		fi
+        done
+
+	if [ "$flag" == '1' ];then
+		echo "check url success!"
+	else
+		echo "URL:$url is  wrong!"
+		exit
+	fi
+}
+
+#################################################
+# --parallel=30 表示同时开启 30 下载线程
+# --exclude 表示需要排除的克隆目录
+# --delete 表示差异备份
+#################################################
+start_fetch(){
+        echo "start fetching ..."
+        /usr/local/bin/pkg_lftp -c open -e "mirror  --parallel=30  \
+                --exclude 'FreeBSD:8:*' \
+                --exclude 'FreeBSD:9:*' \
+                --exclude 'FreeBSD:11:aar*' \
+                --exclude 'FreeBSD:12:armv*' \
+                --exclude 'FreeBSD:11:mip*' \
+                --exclude 'FreeBSD:12:mi*' \
+                --exclude 'FreeBSD:11:arm*'  \
+        --delete  $remotedir $localdir" $url &
+        log  
+}
+
+
+stop_fetch()
+{
+        pid=`ps aux | grep "[p]kg_lftp" | awk '{print $11}' | cut -d / -f 5`
+        if [ "$pid" == "pkg_lftp" ];then
+                echo "stoping fetchpkg ..."
+                kill `ps aux | grep "[p]kg_lftp" | awk '{print $2}'`
+        else
+                echo "service dos not exsiting ...."
+        fi
+}
+
+load_rc_config $name
+run_rc_command $1
