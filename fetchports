@@ -1,0 +1,110 @@
+#!/bin/sh
+. /etc/rc.subr
+###### Golable var ###############################
+name="fetchports"
+rcvar=fetchports_enable
+
+start_cmd="start_fetch"
+stop_cmd="stop_fetch"
+start_precmd="init_env"
+
+##### Persinal var  ################################
+
+thread=150
+localdir="/other/ports"
+ln_dir="$localdir/distfiles"
+#remotedir="/"
+remotedir="/pub/FreeBSD/ports"
+url="http://ftp2.za.freebsd.org"
+#url="http://ports1.chinafreebsd.cn"
+
+
+####################################################
+fetch_bin=`pkg query %n lftp`
+
+[ -z "fetchports_enable" ] && fetchports_enable="NO"
+
+init_env(){
+
+        if [ "$fetch_bin" != "lftp" ];then
+                /usr/sbin/pkg update -f && /usr/sbin/pkg install -y lftp && \
+			ln -s ln -s /usr/local/bin/lftp /usr/local/bin/ports_lftp
+        fi
+
+        if [ ! -d "$localdir" ];then
+                mkdir -p $localdir
+        fi
+
+	check_url $url
+}
+
+
+log(){
+        echo `date +%Y-%m-%d_%H:%M:%S` >> /var/log/fetchports.log
+}
+
+
+
+
+
+make_ln(){
+	for tmp_dir in `ls $ln_dir` ;do
+		if [ -d $ln_dir/$tmp_dir ];then
+			find $ln_dir/$tmp_dir  -type f -exec ln -s {} $ln_dir \;
+		fi
+	done
+}
+
+
+
+check_url(){
+
+        du1="http://ftp2.za.freebsd.org"
+
+        for  tmp in "$du1"; do
+                if [ "$tmp" == "$1" ]; then
+                        echo "url cheack successful"
+                        break
+                else
+                        echo "Please cheack if input the wrony url:$url"
+                        exit
+                fi
+        done
+}
+
+
+
+start_fetch(){
+        echo "start Ports fetching ..."
+	/usr/local/bin/ports_lftp -c open -e "mirror  --parallel=$thread --delete  $remotedir $localdir" $url > /dev/null 2>&1 &
+	$(waiting_for_fetch && make_ln > /dev/null 2>&1 && log) &
+}
+
+
+waiting_for_fetch(){
+	
+
+	while [ "1" = "1" ];do
+        	pid=`ps aux | grep "[p]orts_lftp" | wc -l`
+		
+		if [ $pid -gt 0 ];then
+			sleep 5
+		else
+			break
+		fi
+	done
+}
+
+
+stop_fetch(){
+        pid=`ps aux | grep "[p]orts_lftp" | awk '{print $11}' | cut -d / -f 5`
+        if [ "$pid" == "ports_lftp" ];then
+                echo "stoping fetchports ..."
+                kill `ps aux | grep "[p]orts_lftp" | awk '{print $2}'`
+        else
+                echo "service dos not exsiting ...."
+        fi
+}
+
+load_rc_config $name
+run_rc_command $1
